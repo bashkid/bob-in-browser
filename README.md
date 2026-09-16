@@ -60,7 +60,7 @@ logged-in* browser session — via Chrome DevTools Protocol attach.
 | | |
 |---|---|
 | **Node.js** | 18 or newer (developed and tested on Node 26) |
-| **Browser** | Google Chrome, or let Playwright install its own Chromium |
+| **Browser** | Chrome/Chromium, Firefox, and WebKit — Playwright installs them |
 | **OS** | macOS, Linux, or Windows |
 
 ---
@@ -71,7 +71,7 @@ Clone or unzip, then from inside the folder:
 
 ```sh
 npm install
-npx playwright install chromium   # only if Chrome/Chromium is missing
+npx playwright install chromium firefox webkit   # or just the engines you need
 ```
 
 ### Verify before wiring anything up
@@ -118,6 +118,46 @@ the `command` / `args` / `env` triple intact. That part is universal across MCP 
 
 ---
 
+## Cross-browser support
+
+All three major engines are supported, and the audit produces **identical results** on each —
+verified against the bundled fixture.
+
+| `engine` | Engine | Stands in for | Notes |
+|---|---|---|---|
+| `chromium` *(default)* | Blink | Chrome, Edge, Brave, Opera | Uses your **real installed Chrome** when available, else bundled Chromium |
+| `webkit` | WebKit | **Safari** (macOS + iOS) | Playwright's WebKit build — Safari's engine, not Safari itself |
+| `firefox` | Gecko | Firefox | Playwright's patched Gecko build, not your installed Firefox |
+
+Set the default with `BOB_BROWSER_ENGINE`, or switch per call:
+
+```
+open_page { url: "https://example.com", engine: "webkit" }
+audit_design {}
+open_page { url: "https://example.com", engine: "firefox" }
+audit_design {}
+```
+
+Switching engines restarts the browser, so console and network buffers reset — which is what you
+want, since each engine gets a clean log. Screenshots and audit output are labelled with the
+engine that produced them, so cross-engine comparisons are never ambiguous.
+
+### How faithful is each one?
+
+Being precise, because this matters for design review:
+
+- **Chromium is exact** for Chrome, because it can drive your actual Chrome install.
+- **WebKit is Safari's engine, but is not Safari.** Layout, CSS, and font rendering behave like
+  Safari — which is what catches the flexbox and `position: sticky` differences that bite in
+  practice. It does not carry Safari's UI chrome, its exact version, or Safari-only features.
+  Treat it as a very good proxy, not a substitute for a final check on a real device.
+- **Firefox is a patched Gecko build**, matched to the Playwright version rather than to the
+  Firefox you have installed.
+
+Engine differences are real and worth catching. During development of this tool, WebKit collapsed
+a broken `<img>` to 0x0 where Chromium gave it a 16x16 box — exactly the kind of divergence that
+makes a layout break in one browser only.
+
 ## Two browser modes
 
 ### 1. Launch (default)
@@ -133,6 +173,10 @@ always know what rendered your screenshot.
 
 Inspect pages **behind a login** without re-authenticating, by attaching to a Chrome you have
 already signed into. This is the capability a plain headless browser cannot give you.
+
+> **Chromium only.** The Chrome DevTools Protocol is a Chromium feature; Firefox and WebKit have
+> no equivalent. With `BOB_BROWSER_CDP_URL` set, requesting another engine returns a clear error
+> rather than silently falling back.
 
 ```sh
 # 1. Quit Chrome completely, then start it with the DevTools port open.
@@ -159,6 +203,7 @@ All configuration is environment variables — no config file.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `BOB_BROWSER_ENGINE` | `chromium` | Default engine: `chromium`, `firefox`, or `webkit`. Overridable per call via `open_page`. |
 | `BOB_BROWSER_CDP_URL` | *(unset)* | Attach to a running Chrome at this CDP URL instead of launching one. E.g. `http://localhost:9222`. |
 | `BOB_BROWSER_HEADLESS` | `true` | Set to `false` to watch the browser work in a visible window. Useful when debugging a selector. |
 | `BOB_BROWSER_OUT` | `$TMPDIR/bob-in-browser-shots` | Directory for full-resolution PNG screenshots. |
@@ -180,8 +225,9 @@ the capture buffers reset on every call, so each page gets a clean log.
 | `width` | number | `1280` | Viewport width in px |
 | `height` | number | `900` | Viewport height in px |
 | `wait_until` | enum | `networkidle` | `load`, `domcontentloaded`, or `networkidle` |
+| `engine` | enum | `chromium` | `chromium`, `firefox`, or `webkit`. Switching restarts the browser. |
 
-Returns the final URL, page title, HTTP status, and active browser mode.
+Returns the final URL, page title, HTTP status, active engine, and browser mode.
 
 ### `screenshot`
 
@@ -341,6 +387,20 @@ audit_design {}
 Mobile menus, modals, and expanded accordions are frequently where layout breaks, precisely
 because they are not visible in a static screenshot.
 
+### Check the same page across Chrome, Safari, and Firefox
+
+```
+open_page    { url: "https://example.com", engine: "chromium", width: 390 }
+audit_design {}
+open_page    { url: "https://example.com", engine: "webkit",   width: 390 }
+audit_design {}
+open_page    { url: "https://example.com", engine: "firefox",  width: 390 }
+audit_design {}
+```
+
+Three engines, same viewport, labelled output. Where the findings diverge, you have found a
+browser-specific bug — usually flexbox, `position: sticky`, or a font fallback.
+
 ### Compare a build against a reference
 
 Point it at a production URL and a local build at the same widths, and compare the saved PNGs.
@@ -406,6 +466,11 @@ stylesheet that failed to load. Check `read_network_errors` first.
 - **No visual regression diffing.** Screenshots are saved with paths returned, but comparing them
   across runs is left to you.
 - **No native dialog handling.** `alert` / `confirm` / `prompt` will block the page.
+- **WebKit is not Safari, and Gecko is not your Firefox.** Both are Playwright's builds of the
+  respective engines. Excellent proxies for layout and CSS behaviour; not a replacement for a
+  final pass on real devices, especially for iOS Safari.
+- **CDP attach is Chromium-only**, so inspecting a logged-in session is not available in WebKit or
+  Firefox.
 - **Contrast checking assumes solid backgrounds.** Text over an image or gradient is resolved to
   the nearest solid ancestor colour, which may not reflect what a reader actually sees.
 

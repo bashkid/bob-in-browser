@@ -1,14 +1,17 @@
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import { auditFn } from './checks.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+const ENGINES = { chromium, firefox, webkit };
+const DEFAULT_ENGINE = (process.env.BOB_BROWSER_ENGINE || 'chromium').toLowerCase();
 const CDP_URL = process.env.BOB_BROWSER_CDP_URL || '';
 const HEADLESS = process.env.BOB_BROWSER_HEADLESS !== 'false';
 const OUT_DIR = process.env.BOB_BROWSER_OUT || path.join(os.tmpdir(), 'bob-in-browser-shots');
 
 let browser = null, context = null, page = null, mode = 'none';
+let engine = DEFAULT_ENGINE;
 let consoleLog = [], networkLog = [], pageErrors = [];
 
 export function resetLogs() { consoleLog = []; networkLog = []; pageErrors = []; }
@@ -34,22 +37,40 @@ function wire(p) {
   });
 }
 
-export async function ensurePage() {
-  if (page && !page.isClosed()) return page;
+export async function ensurePage(want) {
+  const target = (want || engine).toLowerCase();
+  if (!ENGINES[target]) throw new Error(`unknown engine "${target}" — use chromium, firefox, or webkit`);
+  // Switching engines requires a fresh browser.
+  if (page && !page.isClosed() && target === engine) return page;
+  if (page && target !== engine) await closeBrowser();
+  engine = target;
 
   if (CDP_URL) {
-    // Attach to the user's already-running Chrome — keeps SSO/session cookies.
+    if (engine !== 'chromium') {
+      throw new Error(`BOB_BROWSER_CDP_URL is set, but CDP attach only works with chromium (engine is "${engine}"). Unset it to launch ${engine}.`);
+    }
+    // Attach to an already-running Chrome — keeps the existing login session.
     browser = await chromium.connectOverCDP(CDP_URL);
-    mode = 'attached:' + CDP_URL;
+    mode = 'attached:chromium:' + CDP_URL;
     context = browser.contexts()[0] || (await browser.newContext());
     page = context.pages().find((p) => !p.isClosed()) || (await context.newPage());
   } else {
-    try {
-      browser = await chromium.launch({ headless: HEADLESS, channel: 'chrome' });
-      mode = 'launched:chrome' + (HEADLESS ? ':headless' : ':headed');
-    } catch {
-      browser = await chromium.launch({ headless: HEADLESS });
-      mode = 'launched:chromium' + (HEADLESS ? ':headless' : ':headed');
+    const tag = (HEADLESS ? ':headless' : ':headed');
+    if (engine === 'chromium') {
+      try {
+        browser = await chromium.launch({ headless: HEADLESS, channel: 'chrome' });
+        mode = 'launched:chrome' + tag;
+      } catch {
+        browser = await chromium.launch({ headless: HEADLESS });
+        mode = 'launched:chromium' + tag;
+      }
+    } else {
+      try {
+        browser = await ENGINES[engine].launch({ headless: HEADLESS });
+      } catch (e) {
+        throw new Error(`could not launch ${engine}: ${e.message}. Run: npx playwright install ${engine}`);
+      }
+      mode = 'launched:' + engine + tag;
     }
     context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
     page = await context.newPage();
@@ -58,10 +79,12 @@ export async function ensurePage() {
   return page;
 }
 
+export function getEngine() { return engine; }
+
 export function getMode() { return mode; }
 
-export async function openPage(url, { width, height, waitUntil = 'networkidle', timeout = 30000 } = {}) {
-  const p = await ensurePage();
+export async function openPage(url, { width, height, waitUntil = 'networkidle', timeout = 30000, engine: want } = {}) {
+  const p = await ensurePage(want);
   resetLogs();
   if (width) await p.setViewportSize({ width, height: height || 900 });
   let status = null;
@@ -74,7 +97,7 @@ export async function openPage(url, { width, height, waitUntil = 'networkidle', 
     status = resp ? resp.status() : null;
   }
   await p.waitForTimeout(300);
-  return { url: p.url(), title: await p.title(), status, mode, viewport: p.viewportSize() };
+  return { url: p.url(), title: await p.title(), status, engine, mode, viewport: p.viewportSize() };
 }
 
 export async function shoot({ width, height, fullPage = false, selector = null, type = 'jpeg', quality = 80, label = 'shot' } = {}) {

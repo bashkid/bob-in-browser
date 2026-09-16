@@ -86,21 +86,27 @@ export function auditFn(opts) {
       }
     }
 
-    // 4. Images missing alt (alt="" is a valid decorative marker)
-    if (el.tagName === 'IMG' && el.getAttribute('alt') === null && out.missingAlt.length < LIMIT) {
-      out.missingAlt.push({ el: sel(el), src: (el.getAttribute('src') || '').slice(0, 80) });
-    }
-
-    // 5. Text below 12px
+    // 4. Text below 12px
     if (hasOwnText(el) && out.tinyText.length < LIMIT) {
       const size = parseFloat(cs.fontSize);
       if (size && size < 12) out.tinyText.push({ el: sel(el), text: txt(el), font_px: Math.round(size * 10) / 10 });
     }
 
-    // 6. Content clipped by overflow:hidden
+    // 5. Content clipped by overflow:hidden
     if (out.clipped.length < LIMIT && /hidden|clip/.test(cs.overflow) && (el.scrollWidth > el.clientWidth + 2 || el.scrollHeight > el.clientHeight + 2) && hasOwnText(el)) {
       out.clipped.push({ el: sel(el), text: txt(el), content: el.scrollWidth + 'x' + el.scrollHeight, box: el.clientWidth + 'x' + el.clientHeight });
     }
+  }
+
+  // Images missing alt — checked separately so a broken or zero-sized image
+  // (WebKit collapses these to 0x0, Chromium does not) is still reported.
+  for (const img of document.querySelectorAll('img')) {
+    if (out.missingAlt.length >= LIMIT) break;
+    if (img.getAttribute('alt') !== null) continue;  // alt="" = decorative, valid
+    let cs;
+    try { cs = getComputedStyle(img); } catch { continue; }
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    out.missingAlt.push({ el: sel(img), src: (img.getAttribute('src') || '').slice(0, 80) });
   }
 
   const counts = Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.length]));

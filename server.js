@@ -11,7 +11,7 @@ const bool = (d, desc) => ({ type: 'boolean', description: desc, default: d });
 const TOOLS = [
   {
     name: 'open_page',
-    description: 'Open a URL in the browser and start capturing console + network errors. Call this first. Returns page title, HTTP status, and which browser mode is active.',
+    description: 'Open a URL in the browser and start capturing console + network errors. Call this first. Returns page title, HTTP status, and the active engine. Set `engine` to re-open the same URL in a different browser engine and compare rendering.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -19,6 +19,7 @@ const TOOLS = [
         width: num(1280, 'Viewport width in px.'),
         height: num(900, 'Viewport height in px.'),
         wait_until: str('When to consider navigation done.', { enum: ['load', 'domcontentloaded', 'networkidle'], default: 'networkidle' }),
+        engine: str('Browser engine. chromium = Chrome/Edge, webkit = Safari, firefox = Firefox. Switching engines restarts the browser.', { enum: ['chromium', 'firefox', 'webkit'], default: 'chromium' }),
       },
       required: ['url'],
     },
@@ -122,12 +123,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
     switch (name) {
       case 'open_page': {
-        const r = await B.openPage(a.url, { width: a.width, height: a.height, waitUntil: a.wait_until || 'networkidle' });
+        const r = await B.openPage(a.url, { width: a.width, height: a.height, waitUntil: a.wait_until || 'networkidle', engine: a.engine });
         return { content: [text(r)] };
       }
       case 'screenshot': {
         const s = await B.shoot({ width: a.width, fullPage: !!a.full_page, selector: a.selector || null, type: a.format || 'jpeg' });
-        return { content: [text({ saved_png: s.file, viewport: s.viewport }), image(s)] };
+        return { content: [text({ engine: B.getEngine(), saved_png: s.file, viewport: s.viewport }), image(s)] };
       }
       case 'check_responsive': {
         const widths = Array.isArray(a.widths) && a.widths.length ? a.widths : [390, 768, 1280];
@@ -135,7 +136,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const roll = [];
         for (const w of widths) {
           const au = await B.audit({ width: w });
-          roll.push(`--- ${w}px: ${au.total_issues} issue(s) ---\n${summarize(au)}`);
+          roll.push(`--- ${B.getEngine()} @ ${w}px: ${au.total_issues} issue(s) ---\n${summarize(au)}`);
           if (a.include_images !== false) {
             const s = await B.shoot({ width: w, fullPage: !!a.full_page, label: 'bp' });
             content.push(text(`[${w}px] saved: ${s.file}`));
@@ -147,7 +148,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
       case 'audit_design': {
         const au = await B.audit({ width: a.width });
-        return { content: [text(`Viewport ${au.viewport}px — ${au.total_issues} issue(s)\n\n${summarize(au)}`), text(au)] };
+        return { content: [text(`${B.getEngine()} @ ${au.viewport}px — ${au.total_issues} issue(s)\n\n${summarize(au)}`), text(au)] };
       }
       case 'read_console':
         return { content: [text(B.readConsole({ pattern: a.pattern, level: a.level, limit: a.limit || 50 }))] };
