@@ -1,0 +1,14 @@
+{
+  "name": "bob-in-browser",
+  "version": "1.0.0",
+  "description": "Browser inspection MCP server for any MCP client - screenshots, responsive breakpoints, console/network errors, and automated design audits",
+  "type": "module",
+  "bin": { "bob-in-browser": "./server.js" },
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "smoke": "node smoke.js" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.63.0"
+  },
+  "license": "MIT"
+}

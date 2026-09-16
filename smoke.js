@@ -1,0 +1,16 @@
+import * as B from './browser.js';
+import path from 'node:path';
+const url = 'file://' + path.resolve('test/broken.html');
+console.log('opening', url);
+console.log(await B.openPage(url, { width: 390 }));
+const a = await B.audit({ width: 390 });
+console.log('\n=== AUDIT @390px ===');
+console.log('total issues:', a.total_issues, a.counts);
+for (const [k, v] of Object.entries(a.findings)) if (v.length) console.log(' ', k, JSON.stringify(v[0]));
+console.log('\n=== CONSOLE ===');
+console.log(B.readConsole({ limit: 5 }));
+console.log('\n=== NETWORK ===');
+console.log(B.readNetwork({ limit: 5 }));
+const s = await B.shoot({ width: 390, label: 'smoke' });
+console.log('\nscreenshot saved:', s.file, 'b64 len:', s.base64.length);
+await B.closeBrowser();

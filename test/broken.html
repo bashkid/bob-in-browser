@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Broken Page</title>
+<style>
+  body { margin:0; font-family: system-ui; background:#fff; }
+  .wide { width: 1400px; background:#eee; padding:20px; }
+  .faint { color:#bbb; background:#fff; font-size:16px; }
+  .tiny { font-size: 9px; }
+  .smallbtn { width:24px; height:24px; font-size:10px; }
+  .clip { width:120px; height:20px; overflow:hidden; white-space:nowrap; }
+  .ok { color:#111; background:#fff; font-size:18px; }
+</style></head><body>
+  <div class="wide">This block is 1400px wide and will overflow a phone viewport</div>
+  <p class="faint">This grey text fails WCAG AA contrast</p>
+  <p class="tiny">This text is only 9 pixels tall</p>
+  <button class="smallbtn">x</button>
+  <a href="#" class="smallbtn">y</a>
+  <div class="clip">This sentence is far too long for its clipped container box</div>
+  <img src="logo.png">
+  <img src="deco.png" alt="">
+  <p class="ok">This paragraph is fine and should not be flagged.</p>
+  <script>console.error("boom: simulated app error"); fetch('/missing-font.woff2');</script>
+</body></html>
